@@ -99,7 +99,7 @@ can skip it.
 
 ### Samples — and requesting source code
 
-`metal_samples.csv` tells you a sample *exists* and what it covers, but its
+`samples.csv` tells you a sample *exists* and what it covers, but its
 source code is **not** in this skill (`source_available=false`). When a sample
 is the right reference for the task:
 
