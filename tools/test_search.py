@@ -73,6 +73,13 @@ class StopwordTests(unittest.TestCase):
             self.assertIn("the", stop)
             self.assertNotIn("metal", stop)
 
+    def test_non_list_domain_stopwords_is_ignored(self):
+        with tempfile.TemporaryDirectory() as d:
+            make_data(d, [], config={"domain_stopwords": "metal apple"})
+            stop = search.load_stopwords(d)
+            self.assertNotIn("m", stop)  # a string config must NOT add single chars
+            self.assertNotIn("metal", stop)
+
 
 class VideoSearchTests(unittest.TestCase):
     def test_finds_video_by_keyword(self):
@@ -86,6 +93,19 @@ class VideoSearchTests(unittest.TestCase):
             code, out, _ = run_main(["lighting", "--data", d])
             self.assertEqual(code, 0)
             self.assertIn("Deferred Lighting", out)
+
+    def test_json_output_is_valid(self):
+        with tempfile.TemporaryDirectory() as d:
+            make_data(
+                d,
+                videos=[{"id": "1", "collection": "wwdc2020", "title": "Deferred Lighting",
+                         "keywords": "lighting", "video_url": "u1"}],
+                transcripts={"wwdc2020-1.txt": "deferred lighting"},
+            )
+            code, out, _ = run_main(["lighting", "--data", d, "--json"])
+            self.assertEqual(code, 0)
+            data = json.loads(out)
+            self.assertTrue(any(r["title"] == "Deferred Lighting" for r in data))
 
     def test_transcript_frequency_breaks_ties(self):
         with tempfile.TemporaryDirectory() as d:
@@ -140,7 +160,7 @@ class SamplesOptionalTests(unittest.TestCase):
                            "keywords": "actors", "video_url": "u1"}])
             code, out, _ = run_main(["actors", "--type", "sample", "--data", d])
             self.assertEqual(code, 0)
-            self.assertIn("No samples in this index", out + _)
+            self.assertIn("No samples in this index", out)
 
     def test_samples_searched_when_present(self):
         with tempfile.TemporaryDirectory() as d:

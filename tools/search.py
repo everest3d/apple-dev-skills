@@ -52,15 +52,19 @@ def load_stopwords(data_dir):
     cfg = Path(data_dir) / "search_config.json"
     try:
         data = json.loads(cfg.read_text(encoding="utf-8"))
-        for w in data.get("domain_stopwords", []):
-            stop.add(str(w).lower())
+        words = data.get("domain_stopwords", [])
+        if isinstance(words, list):
+            for w in words:
+                stop.add(str(w).lower())
     except (OSError, ValueError):
         pass
     return stop
 
 
-def query_tokens(query, stopwords=STOPWORDS):
+def query_tokens(query, stopwords=None):
     """Meaningful tokens from a query (stopwords and 1-char tokens removed)."""
+    if stopwords is None:
+        stopwords = STOPWORDS
     return [t for t in tokenize(query) if t not in stopwords and len(t) > 1]
 
 
@@ -108,6 +112,8 @@ def search_videos(tokens, data_dir):
             meta_tokens = set(tokenize(meta_blob))
             # Reconstruct the transcript path from collection+id under this data
             # dir, rather than trusting the CSV column (keeps the skill portable).
+            # NB: "transcipts" (missing 'r') is intentional — it matches the
+            # on-disk directory name used across the project; do not "fix" it.
             transcript = data_dir / "transcipts" / f"{row['collection']}-{row['id']}.txt"
             try:
                 tcounts = Counter(tokenize(transcript.read_text(encoding="utf-8")))
@@ -205,7 +211,8 @@ def main(argv=None):
     parser.add_argument("--type", choices=["video", "sample", "all"], default="all",
                         help="Restrict to videos, samples, or both (default: all)")
     parser.add_argument("--limit", type=int, default=5,
-                        help="Max results per type (default: 5)")
+                        help="Max results per type; in 'all' mode up to 2x this "
+                             "may be returned (default: 5)")
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of text")
     args = parser.parse_args(argv)
 
