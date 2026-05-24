@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Search the bundled Metal resource index (videos + samples) by relevance.
+"""Search a bundled resource index (videos + optional samples) by relevance.
 
-Ranks Apple Developer videos (which have a full transcript on disk) and Metal
-sample-code entries against a free-text query, scoring on tags/keywords, title,
-and description. Use it to find the most relevant authoritative Apple material
-for any Metal task, then read a video's transcript to ground your answer.
+Ranks Apple Developer videos (which have a full transcript on disk) and, when a
+samples index is present, sample-code entries against a free-text query, scoring
+on tags/keywords, title, description, and — for videos — transcript term
+frequency (so a talk that actually discusses a topic outranks a name-drop). Point
+it at a skill's data directory with --data.
 
 Zero dependencies — standard library only.
 
 Examples:
-    python3 scripts/search.py "deferred lighting tile shaders"
-    python3 scripts/search.py "argument buffers" --type sample
-    python3 scripts/search.py "ray tracing reflections" --limit 3 --json
+    python3 search.py "deferred lighting tile shaders" --data ./data
+    python3 search.py "argument buffers" --type sample --data ./data
+    python3 search.py "actors concurrency" --data ./data --json
 """
 
 import argparse
@@ -22,18 +23,16 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-VIDEOS_CSV = DATA_DIR / "videos.csv"
-SAMPLES_CSV = DATA_DIR / "metal_samples.csv"
-
-# Words too generic to discriminate between Metal resources (every row is about
-# Metal), or that carry no topical signal. Dropped from the query before scoring.
+# Generic stopwords: too common to discriminate, or no topical signal. Domain
+# words (e.g. "metal", "swift", "apple") are intentionally NOT hardcoded — each
+# skill adds its own via <data>/search_config.json, keeping this script
+# domain-agnostic and identical across skills.
 STOPWORDS = {
     "a", "an", "the", "to", "of", "for", "in", "on", "and", "or", "with", "how",
     "do", "i", "me", "my", "you", "your", "is", "are", "can", "what", "best",
     "way", "ways", "using", "use", "used", "want", "need", "should", "app",
-    "apps", "code", "metal", "apple", "it", "this", "that", "implement", "create",
-    "build", "make", "show", "find", "help", "about", "into", "from", "as", "at",
+    "apps", "code", "it", "this", "that", "implement", "create", "build", "make",
+    "show", "find", "help", "about", "into", "from", "as", "at",
 }
 
 WORD_RE = re.compile(r"[a-z0-9]+")
@@ -44,24 +43,36 @@ def tokenize(text):
     return WORD_RE.findall(text.lower())
 
 
-def query_tokens(query):
-    """Meaningful tokens from a user query (stopwords and 1-char tokens removed)."""
-    return [t for t in tokenize(query) if t not in STOPWORDS and len(t) > 1]
+def load_stopwords(data_dir):
+    """Base stopwords plus any ``domain_stopwords`` in <data_dir>/search_config.json.
+
+    A missing or malformed config yields the base set (never raises).
+    """
+    stop = set(STOPWORDS)
+    cfg = Path(data_dir) / "search_config.json"
+    try:
+        data = json.loads(cfg.read_text(encoding="utf-8"))
+        for w in data.get("domain_stopwords", []):
+            stop.add(str(w).lower())
+    except (OSError, ValueError):
+        pass
+    return stop
+
+
+def query_tokens(query, stopwords=STOPWORDS):
+    """Meaningful tokens from a query (stopwords and 1-char tokens removed)."""
+    return [t for t in tokenize(query) if t not in stopwords and len(t) > 1]
 
 
 def _score(tokens, title, title_tokens, meta_blob, meta_tokens, tag_tokens,
            transcript_counts):
     """Score one row against the query tokens.
 
-    Curated tag/keyword hits weigh most (the human-meaningful signal), then a
-    title hit, then a hit anywhere in the metadata. For videos we also add the
-    transcript term frequency (capped) so a talk that actually *discusses* a
-    topic outranks one that merely name-drops it in its blurb — the metadata
-    alone is too thin to rank videos well.
-
-    Longer tokens use substring matching so 'render' also matches 'rendering';
-    short tokens (2-3 chars, e.g. 'ml', '3d') require a whole-word hit to avoid
-    spurious substring matches.
+    Curated tag/keyword hits weigh most, then a title hit, then a hit anywhere in
+    the metadata. For videos we also add transcript term frequency (capped) so a
+    talk that discusses a topic outranks one that merely name-drops it. Longer
+    tokens use substring matching ('render' matches 'rendering'); short tokens
+    (2-3 chars) require a whole-word hit to avoid spurious matches.
     """
     score = 0
     matched = []
@@ -84,9 +95,10 @@ def _score(tokens, title, title_tokens, meta_blob, meta_tokens, tag_tokens,
     return score, matched
 
 
-def search_videos(tokens):
+def search_videos(tokens, data_dir):
     results = []
-    with VIDEOS_CSV.open(newline="", encoding="utf-8") as f:
+    data_dir = Path(data_dir)
+    with (data_dir / "videos.csv").open(newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
             title = row["title"].lower()
             title_tokens = set(tokenize(row["title"]))
@@ -94,12 +106,9 @@ def search_videos(tokens):
             meta_blob = " ".join([row["title"], row["description"], row["keywords"],
                                   row["topics"], row["event"], row["collection"]]).lower()
             meta_tokens = set(tokenize(meta_blob))
-            # Locate the transcript within this skill's bundled data by
-            # reconstructing the filename from collection+id, rather than trusting
-            # the CSV's transcript_path column. This keeps the skill self-contained
-            # and portable even if that column holds an absolute path from an older
-            # build, and it's where the term-frequency signal comes from too.
-            transcript = DATA_DIR / "transcipts" / f"{row['collection']}-{row['id']}.txt"
+            # Reconstruct the transcript path from collection+id under this data
+            # dir, rather than trusting the CSV column (keeps the skill portable).
+            transcript = data_dir / "transcipts" / f"{row['collection']}-{row['id']}.txt"
             try:
                 tcounts = Counter(tokenize(transcript.read_text(encoding="utf-8")))
             except OSError:
@@ -123,9 +132,10 @@ def search_videos(tokens):
     return results
 
 
-def search_samples(tokens):
+def search_samples(tokens, data_dir):
     results = []
-    with SAMPLES_CSV.open(newline="", encoding="utf-8") as f:
+    data_dir = Path(data_dir)
+    with (data_dir / "samples.csv").open(newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
             title = row["title"].lower()
             title_tokens = set(tokenize(row["title"]))
@@ -159,7 +169,7 @@ def rank(results, limit):
 
 def format_text(results):
     if not results:
-        return "No matching Metal resources found. Try broader or different terms."
+        return "No matching resources found. Try broader or different terms."
     lines = []
     for r in results:
         why = ", ".join(r["matched"])
@@ -188,6 +198,10 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("query", help="Free-text query, e.g. 'deferred lighting'")
+    parser.add_argument("--data", default="data",
+                        help="Skill data directory holding videos.csv, transcipts/, "
+                             "and optionally samples.csv / search_config.json "
+                             "(default: ./data)")
     parser.add_argument("--type", choices=["video", "sample", "all"], default="all",
                         help="Restrict to videos, samples, or both (default: all)")
     parser.add_argument("--limit", type=int, default=5,
@@ -195,17 +209,32 @@ def main(argv=None):
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of text")
     args = parser.parse_args(argv)
 
-    tokens = query_tokens(args.query)
+    data_dir = Path(args.data)
+    videos_csv = data_dir / "videos.csv"
+    samples_csv = data_dir / "samples.csv"
+    if not videos_csv.is_file():
+        print(f"error: videos index not found: {videos_csv}", file=sys.stderr)
+        return 1
+
+    tokens = query_tokens(args.query, load_stopwords(data_dir))
     if not tokens:
         print("error: query had no searchable terms after removing stopwords.",
               file=sys.stderr)
         return 1
 
+    # Samples are optional: a skill (e.g. swift) may ship no samples.csv.
+    if args.type == "sample" and not samples_csv.is_file():
+        if args.json:
+            print("[]")
+        else:
+            print("No samples in this index.")
+        return 0
+
     out = []
     if args.type in ("video", "all"):
-        out += rank(search_videos(tokens), args.limit)
-    if args.type in ("sample", "all"):
-        out += rank(search_samples(tokens), args.limit)
+        out += rank(search_videos(tokens, data_dir), args.limit)
+    if args.type in ("sample", "all") and samples_csv.is_file():
+        out += rank(search_samples(tokens, data_dir), args.limit)
     # When mixing, keep each type's internal ranking but show videos first.
     out.sort(key=lambda r: (0 if r["kind"] == "video" else 1, -r["score"]))
 
