@@ -39,7 +39,7 @@ video"; the point is to ground the work itself.
 - **`transcipts/`** — the plain-text transcript for every video above, named
   `<collection>-<id>.txt`. This is the real substance — Apple engineers
   explaining the API and the reasoning behind it.
-- **`metal_samples.csv`** — Apple's Metal sample-code library (48 official
+- **`samples.csv`** — Apple's Metal sample-code library (48 official
   samples), with `topic`, `tags`, `language`, and a `source_available` flag.
   The sample **source code is not bundled** (see "Samples" below).
 
@@ -52,7 +52,8 @@ tool. Think about the Metal concepts involved — e.g. a task about "smooth
 shadow edges on Apple GPUs" becomes `msaa antialiasing tile`.
 
 ```
-python3 scripts/search.py "<concept terms>" [--type video|sample|all] [--limit N] [--json]
+python3 "${CLAUDE_SKILL_DIR}/scripts/search.py" "<concept terms>" \
+    --data "${CLAUDE_SKILL_DIR}/data" [--type video|sample|all] [--limit N] [--json]
 ```
 
 The tool ranks results by curated tags/keywords, title, and — for videos — how
@@ -60,7 +61,7 @@ much each transcript actually discusses your terms (so a talk *about* the topic
 beats one that merely name-drops it). Each video result prints its
 `video_url` and the absolute `transcript:` path.
 
-Run it from this skill's directory, or give the full path to `scripts/search.py`.
+`${CLAUDE_SKILL_DIR}` resolves to this skill's own directory, so the command works regardless of the current working directory.
 
 ### 2. Quick mode — surface what's relevant
 
@@ -81,6 +82,20 @@ Metal's guidance evolves.
 
 This is the default for real Metal work. The transcripts have no timestamps, so
 quote or paraphrase the relevant passage rather than pointing at a time.
+
+### 4. Refresh current API details from context7
+
+Transcripts explain concepts and Apple's reasoning but are pinned to their WWDC
+year; Metal's exact API shapes change across OS versions. **Before writing or
+finalizing any Metal implementation code, refresh the current API from
+context7**: resolve the relevant framework (Metal, MetalKit, MetalFX, etc.) and
+query its docs to confirm exact signatures, parameters, and availability. Don't
+ship API shapes from memory or a dated transcript.
+
+When sources conflict: for API specifics prefer context7 (most current); for
+concepts/patterns prefer the transcripts (most recent `event` year). This step
+applies to implementation/debug/review work — pure "what should I watch?" asks
+can skip it.
 
 ### Samples — and requesting source code
 
@@ -129,5 +144,5 @@ developer can go deeper.
 - The corpus is curated, not exhaustive — only videos that have a transcript on
   disk are indexed. A miss means "not in this index," not "doesn't exist."
 - Sample source code is metadata-only until provided (see Samples).
-- To refresh the index, regenerate `videos.csv` with the repo's
-  `tools/build_index.py` and re-copy the data into `data/`.
+- To refresh the index, regenerate `videos.csv` with the plugin's
+  `tools/build_index.py` (maintainer-only).
