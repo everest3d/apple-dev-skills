@@ -9,8 +9,8 @@ the transcript is guaranteed readable.
 
 Zero dependencies — standard library only.
 
-Usage (from the repo root, no flags needed):
-    python3 tools/build_index.py
+Usage (all paths explicit; this is a shared, domain-agnostic tool):
+    python3 build_index.py --html <grid.html> --transcripts <dir> --out <videos.csv>
 """
 
 import argparse
@@ -21,16 +21,6 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 DOMAIN = "https://developer.apple.com"
-
-# Default locations. This script lives in tools/; the input HTML sits next to it,
-# while the transcripts folder and output CSV live at the repo root (the parent
-# directory). Anchoring to __file__ makes `python3 tools/build_index.py` work with
-# no flags regardless of the current working directory.
-_SCRIPT_DIR = Path(__file__).resolve().parent
-_REPO_ROOT = _SCRIPT_DIR.parent
-DEFAULT_HTML = _SCRIPT_DIR / "videos.html"
-DEFAULT_TRANSCRIPTS = _REPO_ROOT / "transcipts"
-DEFAULT_OUT = _REPO_ROOT / "videos.csv"
 
 # CSV column order. Everything here is sourced from the grid card itself.
 COLUMNS = [
@@ -203,13 +193,12 @@ def write_csv(rows, out_path):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--html", default=str(DEFAULT_HTML),
-                        help="Saved grid HTML file (default: <tool dir>/videos.html)")
-    parser.add_argument("--transcripts", default=str(DEFAULT_TRANSCRIPTS),
-                        help="Folder of <collection>-<id>.txt transcripts "
-                             "(default: <repo>/transcipts)")
-    parser.add_argument("--out", default=str(DEFAULT_OUT),
-                        help="Output CSV path (default: <repo>/videos.csv)")
+    parser.add_argument("--html", required=True,
+                        help="Saved Apple videos grid HTML file to parse")
+    parser.add_argument("--transcripts", required=True,
+                        help="Folder of <collection>-<id>.txt transcripts")
+    parser.add_argument("--out", required=True,
+                        help="Output CSV path")
     args = parser.parse_args(argv)
 
     html_path = Path(args.html)
