@@ -1,15 +1,15 @@
 # apple-dev-skills
 
-A Claude Code plugin that grounds Apple-platform development in Apple's **own**
+Agnatic Code plugin that grounds Apple-platform development in Apple's **own**
 guidance. It ships curated, offline indexes of WWDC / Tech-Talk transcripts and a
 ranked search tool, exposed as skills.
 
 ## Skills
 
-- **apple-ecosystem** — umbrella: routes to a domain skill and defines the shared
+- **apple-ecosystem**  umbrella: routes to a domain skill and defines the shared
   workflow (search → read transcript → refresh API from context7 → cite).
-- **metal-resources** — Metal graphics & compute. Includes a samples index.
-- **swift-resources** — the Swift language & concurrency. No samples.
+- **metal-resources**  Metal graphics & compute. Includes a samples index.
+- **swift-resources**  the Swift language & concurrency. No samples.
 
 ## Layout
 
